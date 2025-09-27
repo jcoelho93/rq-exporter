@@ -253,11 +253,6 @@ def main():
             )
             connection.ping()
             logger.info('Connected to Redis successfully.')
-            worker_class = import_attribute(args.worker_class)
-            queue_class = import_attribute(args.queue_class)
-            collector = RQCollector(connection, worker_class, queue_class)
-            if not REGISTRY._names_to_collectors.get('rq_workers'):
-                REGISTRY.register(collector)
             break
         except (IOError, RedisError) as e:
             logger.error(f'Could not connect to Redis (attempt {attempt}/{max_attempts}): {e}')
@@ -267,6 +262,12 @@ def main():
             sleep_time = base_delay * (2 ** (attempt - 1)) + random.uniform(0, 0.5)
             logger.info(f'Retrying in {sleep_time:.1f} seconds...')
             time.sleep(sleep_time)
+        try:
+            worker_class = import_attribute(args.worker_class)
+            queue_class = import_attribute(args.queue_class)
+            collector = RQCollector(connection, worker_class, queue_class)
+            if not REGISTRY._names_to_collectors.get('rq_workers'):
+                REGISTRY.register(collector)
         except (ImportError, AttributeError) as e:
             logger.error(f'Incorrect RQ class location: {e}')
             sys.exit(1)

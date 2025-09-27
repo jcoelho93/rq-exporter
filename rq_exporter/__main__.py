@@ -23,8 +23,9 @@ import time
 import random
 import logging
 import argparse
-
-from prometheus_client import start_wsgi_server
+import threading
+from wsgiref.simple_server import make_server
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from prometheus_client.core import REGISTRY
 from redis.exceptions import RedisError
 from rq.utils import import_attribute
@@ -33,7 +34,6 @@ from .collector import RQCollector
 from .utils import get_redis_connection
 from . import config
 from .__version__ import __version__
-
 
 logger = logging.getLogger(__package__)
 
@@ -236,7 +236,7 @@ def main():
         level=args.log_level.upper()
     )
 
-    max_attempts = 10
+    max_attempts = 7
     base_delay = 1  # seconds
     for attempt in range(1, max_attempts + 1):
         try:
@@ -250,11 +250,14 @@ def main():
                 sentinel_master=args.sentinel_master,
                 password=args.redis_pass,
                 password_file=args.redis_pass_file,
-                ssl=args.ssl,
-                ssl_cert_reqs=None if args.ssl_no_verify else 'required',
             )
             connection.ping()
             logger.info('Connected to Redis successfully.')
+            worker_class = import_attribute(args.worker_class)
+            queue_class = import_attribute(args.queue_class)
+            collector = RQCollector(connection, worker_class, queue_class)
+            if not REGISTRY._names_to_collectors.get('rq_workers'):
+                REGISTRY.register(collector)
             break
         except (IOError, RedisError) as e:
             logger.error(f'Could not connect to Redis (attempt {attempt}/{max_attempts}): {e}')
@@ -268,17 +271,42 @@ def main():
             logger.error(f'Incorrect RQ class location: {e}')
             sys.exit(1)
 
-    worker_class = import_attribute(args.worker_class)
-    queue_class = import_attribute(args.queue_class)
-    REGISTRY.register(RQCollector(connection, worker_class, queue_class))
+    # Background metric collection and cache
+    metrics_cache = {'data': b'', 'timestamp': 0}
+    cache_lock = threading.Lock()
+    collection_interval = 15  # seconds
 
-    # Start the WSGI server
-    start_wsgi_server(args.port, args.host)
+    def collect_metrics_background():
+        while True:
+            try:
+                data = generate_latest(REGISTRY)
+                with cache_lock:
+                    metrics_cache['data'] = data
+                    metrics_cache['timestamp'] = time.time()
+                logger.debug('Metrics cache updated.')
+            except Exception as e:
+                logger.error(f'Error collecting metrics: {e}')
+            time.sleep(collection_interval)
 
+    t = threading.Thread(target=collect_metrics_background, daemon=True)
+    t.start()
+
+    # Custom WSGI app to serve cached metrics
+    def metrics_app(environ, start_response):
+        if environ['PATH_INFO'] == '/metrics':
+            with cache_lock:
+                output = metrics_cache['data']
+            start_response('200 OK', [('Content-Type', CONTENT_TYPE_LATEST)])
+            return [output]
+        start_response('404 Not Found', [('Content-Type', 'text/plain')])
+        return [b'Not Found']
+
+    httpd = make_server(args.host, args.port, metrics_app)
     logger.info(f'Serving the application on {args.host}:{args.port}')
-
-    while True:
-        time.sleep(1)
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        logger.info('Shutting down server.')
 
 
 if __name__ == '__main__':

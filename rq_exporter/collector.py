@@ -117,7 +117,6 @@ class RQCollector(object):
                     started_at = job.started_at
                     ended_at = job.ended_at
                 except Exception:
-                    logger.warning("Could not get job data")
                     continue
 
                 # Execution duration: started -> ended

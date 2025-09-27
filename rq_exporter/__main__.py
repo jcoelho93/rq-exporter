@@ -236,7 +236,7 @@ def main():
         level=args.log_level.upper()
     )
 
-    max_attempts = 7
+    max_attempts = 3
     base_delay = 1  # seconds
     for attempt in range(1, max_attempts + 1):
         try:

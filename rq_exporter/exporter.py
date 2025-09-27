@@ -55,7 +55,8 @@ def create_app():
         sentinel_port=config.REDIS_SENTINEL_PORT,
         sentinel_master=config.REDIS_SENTINEL_MASTER,
         password=config.REDIS_PASS,
-        password_file=config.REDIS_PASS_FILE
+        password_file=config.REDIS_PASS_FILE,
+        ssl=config.REDIS_SSL
     )
 
     worker_class = import_attribute(config.RQ_WORKER_CLASS)

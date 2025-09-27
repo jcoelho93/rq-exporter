@@ -250,6 +250,7 @@ def main():
                 sentinel_master=args.sentinel_master,
                 password=args.redis_pass,
                 password_file=args.redis_pass_file,
+                ssl=args.ssl,
             )
             connection.ping()
             logger.info('Connected to Redis successfully.')

@@ -110,11 +110,15 @@ class RQCollector(object):
             queued_durations = defaultdict(list)
 
             for job in jobs:
-                queue_name = getattr(job, 'origin', 'unknown')
-                status = getattr(job, 'get_status', lambda: 'unknown')()
-                created_at = getattr(job, 'created_at', None)
-                started_at = getattr(job, 'started_at', None)
-                ended_at = getattr(job, 'ended_at', None)
+                try:
+                    queue_name = job.origin
+                    status = job.get_status() if callable(job.get_status) else 'unknown'
+                    created_at = job.created_at
+                    started_at = job.started_at
+                    ended_at = job.ended_at
+                except Exception:
+                    logger.warning("Could not get job data")
+                    continue
 
                 # Execution duration: started -> ended
                 if started_at and ended_at:
